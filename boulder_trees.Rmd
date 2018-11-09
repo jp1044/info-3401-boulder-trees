@@ -2,23 +2,116 @@
 title: "Boulder Tree Canopy"
 author: "Jacob Paul"
 date: "10/3/2018"
-output: html_document
+output:
+  html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
 library(leaflet)
 library(rgdal)
+library(ggplot2)
+library(rgeos)
+library(raster)
 ```
 
 ```{r}
-shape <- readOGR('/Users/jacobpaul/Downloads/TreesCityBoulder', layer='TreesCityBoulder')
+
+```
+
+```{r}
+shape <- readOGR('./TreesCityBoulder', layer='TreesCityBoulder')
 shape_latlon <- spTransform(shape, CRS("+proj=longlat +datum=WGS84"))
 ```
 
 
 
 ```{r}
-head(shape_latlon[shape_latlon$COMMONNAME == ])
+head(shape_latlon)
+```
+
+```{r}
+csv <- read.csv('Trees_Public.csv')
+head(csv)
+```
+
+```{r}
+summary(csv$EAB)
+#ggplot(data=csv) + geom_bar(mapping = aes(x = GENUS))
+```
+```{r}
+filtered <- shape_latlon[shape_latlon$EAB != 'Unassigned',]
+pal = colorFactor(palette = "RdYlBu", domain=filtered$EAB)
+leaflet(data=filtered) %>% addProviderTiles(providers$CartoDB.Positron) %>% 
+  addCircles(color=~pal(filtered$EAB)) %>% addLegend("bottomright", pal=pal, filtered$EAB)
+```
+
+```{r}
+filtered <- shape_latlon[shape_latlon$COMMONNAME == "Green Ash" | shape_latlon$COMMONNAME == "White Ash",]
+pal = colorFactor(palette = "RdYlBu", domain=filtered$COMMONNAME)
+leaflet(data=filtered) %>% addProviderTiles(providers$CartoDB.Positron) %>% 
+  addCircles(color=~pal(filtered$COMMONNAME)) %>% addLegend("bottomright", pal=pal, filtered$COMMONNAME)
+```
+
+```{r}
+filtered <- shape_latlon[shape_latlon$COMMONNAME == "Green Ash" | shape_latlon$COMMONNAME == "White Ash",]
+pal = colorFactor(palette = "RdYlBu", domain=c("Dead","Very Poor", "Poor", "Fair", "Good", "Excellent", "N/A"))
+leaflet(data=filtered) %>% addProviderTiles(providers$CartoDB.Positron) %>% 
+  addCircles(color=~pal(filtered$CONDITION)) %>% addLegend("bottomright", pal=pal, filtered$CONDITION)
+```
+
+```{r}
+library(leaflet.extras)
+shape_latlon$is_ash <- shape_latlon$COMMONNAME == "Green Ash" | shape_latlon$COMMONNAME == "White Ash"
+pal = colorFactor(palette = topo.colors(2), domain=c("TRUE", "FALSE"))
+leaflet(data=filtered) %>% addProviderTiles(providers$CartoDB.Positron) %>% addHeatmap(radius=6)
+  #addCircles(color=~pal(shape_latlon$is_ash)) %>% 
+  #addLegend("bottomright", pal=pal, shape_latlon$is_ash) 
+```
+```{r}
+subdivisions <- readOGR('./ACS1216_bg', layer='ACS1216_bg')
+subdivisions_latlong <- spTransform(subdivisions, CRS("+proj=longlat +datum=WGS84"))
+```
+
+```{r}
+citylims <- readOGR('./Boulder_City_Limits', layer='Boulder_City_Limits')
+citylims_latlong <- spTransform(citylims, CRS("+proj=longlat +datum=WGS84"))
+#leaflet(data=citylims_latlong) %>% addProviderTiles(providers$CartoDB.Positron) %>% addPolygons()
+```
+
+```{r}
+filtered_blocks <- crop(subdivisions_latlong, citylims_latlong)
+blocks_objectid <- filtered_blocks[c("OBJECTID")]
+```
+
+
+```{r}
+block_ref <- intersect(shape_latlon, blocks_objectid)
+summary(block_ref$d)
+```
+
+```{r}
+pal = colorFactor(palette = "RdYlBu", domain=block_ref$d)
+leaflet(data=block_ref[block_ref$COMMONNAME == "White Ash" | block_ref$COMMONNAME == "Green Ash",]) %>% addProviderTiles(providers$CartoDB.Positron) %>% addPolygons(data=filtered_blocks) %>% addCircles(data = block_ref, color = ~pal(block_ref$d))
+```
+
+```{r}
+#data.frame(block_ref)
+block_gb <- data.frame(block_ref) %>% group_by(d) %>% tally()
+block_gb_ash <- data.frame(block_ref[block_ref$COMMONNAME == "White Ash" | block_ref$COMMONNAME == "Green Ash",]) %>% group_by(d) %>% tally()
+block_gb_merge <- merge(block_gb, block_gb_ash, by="d")
+block_gb_merge$ratio <- block_gb_merge$n.y/block_gb_merge$n.x
+qplot(block_gb_merge$ratio, geom="histogram", bins=12)
+block_gb_merge$zscore <- (block_gb_merge$ratio-mean(block_gb_merge$ratio))/sd(block_gb_merge$ratio)
+```
+```{r}
+sp_blocks_zscore <- merge(blocks_objectid, block_gb_merge, by.x="OBJECTID", by.y="d")
+colors <- colorBin("PRGn", domain = sp_blocks_zscore$zscore, bins = c(-3,-2,-1,0,1,2,3))
+leaflet(sp_blocks_zscore) %>% addProviderTiles(providers$CartoDB.Positron) %>% addPolygons(color=colors(sp_blocks_zscore$zscore), weight=3, fillOpacity = .7) %>% addLegend("bottomright", 
+            pal = colors, 
+            values = sp_blocks_zscore$zscore, 
+            title = "Z-score of % of ash trees")# %>% addHeatmap(data=filtered, radius=6)
 ```
 
