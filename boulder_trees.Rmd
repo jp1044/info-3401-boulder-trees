@@ -1,6 +1,6 @@
 ---
 title: "Boulder Tree Canopy"
-author: "Jacob Paul"
+author: "Jacob Paul and Jack Sandberg"
 date: "10/3/2018"
 output:
   html_document: default
@@ -17,30 +17,18 @@ library(rgeos)
 library(raster)
 ```
 
-```{r}
-
-```
-
+###Import the Data
 ```{r}
 shape <- readOGR('./TreesCityBoulder', layer='TreesCityBoulder')
 shape_latlon <- spTransform(shape, CRS("+proj=longlat +datum=WGS84"))
 ```
 
+#Preliminary Exploration
 
+##Looking at Groups of the EAB column
+We're not sure what exactly these groupings are and what they represent, but feel that they might be useful to some of our analysis.
 
-```{r}
-head(shape_latlon)
-```
-
-```{r}
-csv <- read.csv('Trees_Public.csv')
-head(csv)
-```
-
-```{r}
-summary(csv$EAB)
-#ggplot(data=csv) + geom_bar(mapping = aes(x = GENUS))
-```
+Below, we mapped out the groups to see if we could find a pattern, and the assigned Group seems to depend on the region of the city that the tree is in.
 ```{r}
 filtered <- shape_latlon[shape_latlon$EAB != 'Unassigned',]
 pal = colorFactor(palette = "RdYlBu", domain=filtered$EAB)
@@ -48,6 +36,9 @@ leaflet(data=filtered) %>% addProviderTiles(providers$CartoDB.Positron) %>%
   addCircles(color=~pal(filtered$EAB)) %>% addLegend("bottomright", pal=pal, filtered$EAB)
 ```
 
+
+##Finding the Ash Trees
+Below is a map of all of the ash trees documented by the city labled by the kind of ash tree (white or green). We determined from this map that there is no evident pattern of ash tree existence just by looking at this map. 
 ```{r}
 filtered <- shape_latlon[shape_latlon$COMMONNAME == "Green Ash" | shape_latlon$COMMONNAME == "White Ash",]
 pal = colorFactor(palette = "RdYlBu", domain=filtered$COMMONNAME)
@@ -55,12 +46,16 @@ leaflet(data=filtered) %>% addProviderTiles(providers$CartoDB.Positron) %>%
   addCircles(color=~pal(filtered$COMMONNAME)) %>% addLegend("bottomright", pal=pal, filtered$COMMONNAME)
 ```
 
+##Mapping Tree Conditions
+Although the color scheme is off, we were able to determine that there are no surface level patterns that can be drawn from this map either.
 ```{r}
 filtered <- shape_latlon[shape_latlon$COMMONNAME == "Green Ash" | shape_latlon$COMMONNAME == "White Ash",]
 pal = colorFactor(palette = "RdYlBu", domain=c("Dead","Very Poor", "Poor", "Fair", "Good", "Excellent", "N/A"))
 leaflet(data=filtered) %>% addProviderTiles(providers$CartoDB.Positron) %>% 
   addCircles(color=~pal(filtered$CONDITION)) %>% addLegend("bottomright", pal=pal, filtered$CONDITION)
 ```
+##Diving into Ash Tree grouping
+The heatmap below shows areas where the relative amount of ash trees is high. It's clear that some parts of the city contain a lot of ash trees, but we still don't know how these numbers compare to the total number of trees. 
 
 ```{r}
 library(leaflet.extras)
@@ -70,33 +65,38 @@ leaflet(data=filtered) %>% addProviderTiles(providers$CartoDB.Positron) %>% addH
   #addCircles(color=~pal(shape_latlon$is_ash)) %>% 
   #addLegend("bottomright", pal=pal, shape_latlon$is_ash) 
 ```
+#Grouping by census block
+We needed a way to group trees into different segments. Ideally, we would group trees into a grid format because census blocks are a way for grouping people rather than trees, but this will work for now. First, we need to import the census blocks.
 ```{r}
-subdivisions <- readOGR('./ACS1216_bg', layer='ACS1216_bg')
-subdivisions_latlong <- spTransform(subdivisions, CRS("+proj=longlat +datum=WGS84"))
+census_blocks <- readOGR('./ACS1216_bg', layer='ACS1216_bg')
+census_blocks_latlong <- spTransform(census_blocks, CRS("+proj=longlat +datum=WGS84"))
 ```
 
+The shapefile above contains census blocks for the entire state of Colorado, and we only need the census blocks in Boulder. We used the Boulder City Limits shapefile avaialable on the City of Boulder's Open Data Catalog.
 ```{r}
 citylims <- readOGR('./Boulder_City_Limits', layer='Boulder_City_Limits')
 citylims_latlong <- spTransform(citylims, CRS("+proj=longlat +datum=WGS84"))
 #leaflet(data=citylims_latlong) %>% addProviderTiles(providers$CartoDB.Positron) %>% addPolygons()
 ```
 
+Now, we can use the city limits shape file to crop our census blocks down to just those within the city limits.
 ```{r}
-filtered_blocks <- crop(subdivisions_latlong, citylims_latlong)
+filtered_blocks <- crop(census_blocks_latlong, citylims_latlong)
 blocks_objectid <- filtered_blocks[c("OBJECTID")]
 ```
 
-
+The OBJECTID column in the census blocks data will serve as a good value to group our trees by.
 ```{r}
 block_ref <- intersect(shape_latlon, blocks_objectid)
 summary(block_ref$d)
 ```
-
+These lines of code were used to verify that the grouping occured succesfully. They have been commented out now becuase the map was unecessary to keep in the analysis.
 ```{r}
-pal = colorFactor(palette = "RdYlBu", domain=block_ref$d)
-leaflet(data=block_ref[block_ref$COMMONNAME == "White Ash" | block_ref$COMMONNAME == "Green Ash",]) %>% addProviderTiles(providers$CartoDB.Positron) %>% addPolygons(data=filtered_blocks) %>% addCircles(data = block_ref, color = ~pal(block_ref$d))
+#pal = colorFactor(palette = "RdYlBu", domain=block_ref$d)
+#leaflet(data=block_ref[block_ref$COMMONNAME == "White Ash" | block_ref$COMMONNAME == "Green Ash",]) %>% #addProviderTiles(providers$CartoDB.Positron) %>% addPolygons(data=filtered_blocks) %>% addCircles(data = block_ref, color = #~pal(block_ref$d))
 ```
 
+The goal is to use z-score to determine the percentage of ash trees in each block relative to the average. To make sure that this is a valid method of analysis, we plotted the percentage of ash trees in each block to make sure they roughly followed a normal distribution. Since the data follow a normal distribution, we calculated the z-score for each block.
 ```{r}
 #data.frame(block_ref)
 block_gb <- data.frame(block_ref) %>% group_by(d) %>% tally()
@@ -106,6 +106,8 @@ block_gb_merge$ratio <- block_gb_merge$n.y/block_gb_merge$n.x
 qplot(block_gb_merge$ratio, geom="histogram", bins=12)
 block_gb_merge$zscore <- (block_gb_merge$ratio-mean(block_gb_merge$ratio))/sd(block_gb_merge$ratio)
 ```
+
+In order to get a better idea what this meant spatially, we plotted these blocks on a map, color coded according to their z-score. Here we can more easily spot where there are statistically more ash trees than average. This can be used to focus EAB mitigation efforts as well as to anticipate where the largest impact will be.
 ```{r}
 sp_blocks_zscore <- merge(blocks_objectid, block_gb_merge, by.x="OBJECTID", by.y="d")
 colors <- colorBin("PRGn", domain = sp_blocks_zscore$zscore, bins = c(-3,-2,-1,0,1,2,3))
