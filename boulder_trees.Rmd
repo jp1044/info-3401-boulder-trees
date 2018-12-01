@@ -117,3 +117,7 @@ leaflet(sp_blocks_zscore) %>% addProviderTiles(providers$CartoDB.Positron) %>% a
             title = "Z-score of % of ash trees")# %>% addHeatmap(data=filtered, radius=6)
 ```
 
+```{r}
+
+```
+
